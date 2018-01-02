@@ -22,11 +22,11 @@ model.add(Flatten())       					# Flatten input so as to have no problems with p
 model.add(Dense(18, init='uniform', activation='relu'))
 model.add(Dense(10, init='uniform', activation='relu'))
 
-#model.add(Dense(env.action_space.n, init='uniform', activation='linear'))    # Same number of outputs as possible actions
-#model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
+model.add(Dense(env.action_space.n, init='uniform', activation='linear'))    # Same number of outputs as possible actions
+model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
 
-model.add(Dense(1, init='uniform', activation='softmax'))
-model.compile(loss='mean_squared_error', optimizer='adam')
+#model.add(Dense(1, init='uniform', activation='softmax'))
+#model.compile(loss='mean_squared_error', optimizer='adam')
 
 # Parameters
 D = deque()                                # Register where the actions will be stored
@@ -45,20 +45,22 @@ state = np.stack((obs, obs), axis=1)
 done = False
 for t in range(observetime):
     if np.random.rand() <= epsilon:
-        #action = np.random.randint(0, env.action_space.n, size=1)[0]
-        action = random.uniform(0, 1)
+        action = np.random.randint(0, env.action_space.n, size=1)[0]
+        #action = random.uniform(0, 1)
     else:
         Q = model.predict(state)            # Q-values predictions
-        action = Q[0][0]                    # Move with highest Q-value is the chosen one
+        action = np.argmax(Q)             # Move with highest Q-value is the chosen one
+        #action = Q[0][0]                    # Move with highest Q-value is the chosen one
     observation_new, reward, done, info = env.step(action)     # See state of the game, reward... after performing the action
     obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
     state_new = np.append(np.expand_dims(obs_new, axis=0), state[:, :1, :], axis=1)     # Update the input with the new state of the game
-    pkl_file_stat = os.stat(pkl_file_path)
-
-    if pkl_file_stat.st_size != 0:
-        pkl_file_D = open(pkl_file_path, 'rb')
-        D = pickle.load(pkl_file_D)
-        pkl_file_D.close()
+    
+    if os.path.isfile(pkl_file_path):
+        pkl_file_stat = os.stat(pkl_file_path)
+        if pkl_file_stat.st_size != 0:
+            pkl_file_D = open(pkl_file_path, 'rb')
+            D = pickle.load(pkl_file_D)
+            pkl_file_D.close()
 
     D.append((state, action, reward, state_new, done))         # 'Remember' action and consequence
 
@@ -75,12 +77,12 @@ for t in range(observetime):
         # update model every 20 steps
         if t>20 and t%20==0:
             len_D = len(D)
-            mb_size = len_D if len_D < 50 else 50
+            mb_size = len_D if len_D < 20 else 20
             minibatch = random.sample(D, mb_size)                              # Sample some moves
 
             inputs_shape = (mb_size,) + state.shape[1:]
             inputs = np.zeros(inputs_shape)
-            targets = np.zeros((mb_size, 1))
+            targets = np.zeros((mb_size, env.action_space.n))
 
             for i in range(0, mb_size):
                 state = minibatch[i][0]
@@ -91,14 +93,16 @@ for t in range(observetime):
                 
                 # Build Bellman equation for the Q function
                 inputs[i:i+1] = np.expand_dims(state, axis=0)
-                target = model.predict(state)
-                targets[i] = target[0][0]
+                #target = model.predict(state)
+                #targets[i] = target[0][0]
+                targets[i] = model.predict(state)
                 Q_sa = model.predict(state_new)
                 
                 if done:
-                    targets[i, 0] = reward
+                    targets[i, action] = reward
                 else:
-                    targets[i, 0] = reward + gamma * Q_sa[0][0]
+                    targets[i, action] = reward + gamma * np.max(Q_sa)
+                    #targets[i, action] = reward + gamma * Q_sa[0][0]
 
                 # Train network to output the Q function
                 model.train_on_batch(inputs, targets)
