@@ -5,6 +5,7 @@ from keras.layers import Dense, Flatten  	# Dense layers are fully connected lay
 from collections import deque            	# For storing moves 
 
 import numpy as np
+import pickle
 
 from game import JumpGame
 env = JumpGame()			
@@ -47,6 +48,8 @@ for t in range(observetime):
     obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
     state_new = np.append(np.expand_dims(obs_new, axis=0), state[:, :1, :], axis=1)     # Update the input with the new state of the game
     D.append((state, action, reward, state_new, done))         # 'Remember' action and consequence
+    with open('./data/D.pkl', "wb") as f:
+        pickle.dump(D, f, pickle.HIGHEST_PROTOCOL)
     state = state_new         # Update state
     if done:
         env.reset()           # Restart game if it's finished

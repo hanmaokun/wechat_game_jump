@@ -30,18 +30,18 @@ class JumpGame:
 		self.score = 0
 		self.obs_space_shape = (135, 240, 3)
 		self.observation_space = ObservationSpace(self.obs_space_shape)
-		self.action_space = ActionSpace(5)
+		self.action2time = ['200', '300', '400', '500', '600', '700', '800', '900']
+		self.action_space = ActionSpace(len(self.action2time))
 		self.game_start_btn_coord = (530, 1580)
 		self.data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 		self.score_reader = MeterValueReader()
-		self.action2time = ['300', '600', '900', '1200', '1500']
 		if not os.path.exists(self.data_dir):
 			os.makedirs(self.data_dir)
 
 	def get_score(self, image):
 		img = np.array(image, dtype=np.float32)
 		img = np.delete(img, 3, axis=2)
-		score_img = img[160:360, 50:300, :]
+		score_img = img[180:300, 80:240, :]
 		cv2.imwrite('/tmp/score.jpeg', score_img)
 		img_bw = cv2.imread(os.path.join('/tmp/score.jpeg'), 0)
 
@@ -56,7 +56,7 @@ class JumpGame:
 
 		is_finished = False
 		im_mean = observation.mean(1).mean(0)
-		if(im_mean[0] < 75) and (im_mean[1] < 75) and (im_mean[2] < 75):
+		if(im_mean[0] < 100) and (im_mean[1] < 100) and (im_mean[2] < 100):
 			is_finished = True
 
 		observation = np.transpose(observation, (1,0,2))
@@ -89,6 +89,7 @@ class JumpGame:
 		return observation, score, is_finished
 
 	def reset(self):
+		self.score = 0
 		# at this moment, make sure game is on the 'ready to start' screen.
 		return_code = subprocess.call('adb shell input tap ' + \
 			str(self.game_start_btn_coord[0]) + ' ' + str(self.game_start_btn_coord[1]), shell=True)
@@ -97,6 +98,9 @@ class JumpGame:
 		else:
 			print('game reset failed.')
 			return -1
+
+		# wait till it takes effect
+		time.sleep(1)
 
 		# next grab the screenshot as the initial observation(state).
 		obs, _, _ = self.get_state()
@@ -113,14 +117,19 @@ class JumpGame:
 			print('stepped forward ' + self.action2time[action] + 'ms')
 
 		# wait till it takes effect
-		time.sleep(4)
+		time.sleep(3)
 
 		# get state
-		obs, self.score, is_finished = self.get_state()
+		obs, score, is_finished = self.get_state()
+		if score == -10:
+			self.score = -10
+		else:
+			score -= self.score
+			self.score += score
 
 		# add info to align with atari gym API
 		info = None
-		return obs, self.score, is_finished, info
+		return obs, score, is_finished, info
 
 	def render(self):
 		print('render')

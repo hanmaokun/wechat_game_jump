@@ -20,6 +20,12 @@ sys.setdefaultencoding("utf-8")
 # Deal with cmdline argument first
 parser = argparse.ArgumentParser(description="Clean annotation data.")
 
+def check_pkl(src_file):
+    pkl_file = open(src_file, 'rb')
+    content = pickle.load(pkl_file)
+    for per_d in content:
+        print(per_d[2])
+
 def seg_pig(src_img):
     import numpy as np
     from PIL import Image
@@ -60,7 +66,8 @@ def seg_pig(src_img):
 
 if __name__ == '__main__':
     random.seed(200)
-    parser.add_argument("--srcimg", default="/home/nlp/bigsur/devel/wechat-games/jump/1.png")
+    parser.add_argument("--src", default="/home/nlp/bigsur/devel/wechat-games/jump/1.png")
     args = parser.parse_args()
-    SRC_IMG = args.srcimg
-    seg_pig(SRC_IMG)
+    SRC = args.src
+    #seg_pig(SRC)
+    check_pkl(SRC)

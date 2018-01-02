@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy
-KNN_SQUARE_SIDE = 50  # Square 50 x 50 px.
+KNN_SQUARE_SIDE = 120  # Square 50 x 50 px.
 
 
 def resize(cv_image, factor):
@@ -52,6 +52,14 @@ class BaseKnnMatcher(object):
     def __init__(self, source_dir):
         self.model, self.label_map = self.get_model_and_label_map(source_dir)
 
+        # prepare templates for rec
+        self.lbl2temp = {}
+        for label_idx, filename in enumerate(os.listdir(source_dir)):
+            label = filename[:filename.index('.png')]
+            image = cv2.imread(os.path.join(source_dir, filename), 0)
+            suit_image_standard_size = cv2.resize(image, (KNN_SQUARE_SIDE, KNN_SQUARE_SIDE))
+            self.lbl2temp[label] = suit_image_standard_size
+
     @staticmethod
     def get_model_and_label_map(source_dir):
         responses = []
@@ -77,14 +85,35 @@ class BaseKnnMatcher(object):
         return model, label_map
 
     def predict(self, image):
+        # with knn
+        knn_result = None
         image_standard_size = cv2.resize(image, (KNN_SQUARE_SIDE, KNN_SQUARE_SIDE))
         image_standard_size = numpy.float32(image_standard_size.reshape((1, KNN_SQUARE_SIDE * KNN_SQUARE_SIDE)))
         closest_class, results, neigh_resp, distance = self.model.find_nearest(image_standard_size, k=1)
 
         if distance[0][0] > self.distance_threshold:
-            return None
+            knn_result = None
 
-        return self.label_map[int(closest_class)]
+        knn_result = self.label_map[int(closest_class)]
+
+        # with template matching 
+        meth = 'cv2.TM_CCOEFF_NORMED'
+        method = eval(meth)
+        lbl2score = {}
+        for lbl in self.lbl2temp.keys():
+            template = self.lbl2temp[lbl]
+            image_standard_size = cv2.resize(image, (KNN_SQUARE_SIDE, KNN_SQUARE_SIDE))
+            res = cv2.matchTemplate(image_standard_size, template, method)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+            lbl2score[lbl] = max_val
+            #print(lbl + ' ' + str(max_val))
+
+        if knn_result == '8' and lbl2score[knn_result]<0.8:
+            knn_result = '3'
+        if knn_result == '9' and lbl2score[knn_result]<0.8:
+            knn_result = '7'
+
+        return knn_result
 
 
 class DigitKnnMatcher(BaseKnnMatcher):
