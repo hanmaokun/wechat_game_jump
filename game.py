@@ -30,8 +30,8 @@ class JumpGame:
 		self.score = 0
 		self.obs_space_shape = (135, 240, 3)
 		self.observation_space = ObservationSpace(self.obs_space_shape)
-		self.action2time = ['200', '300', '400', '500', '600', '700', '800', '900']
-		self.action_space = ActionSpace(len(self.action2time))
+		#self.action2time = ['200', '300', '400', '500', '600', '700', '800', '900']
+		#self.action_space = ActionSpace(len(self.action2time))
 		self.game_start_btn_coord = (530, 1580)
 		self.data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 		self.score_reader = MeterValueReader()
@@ -55,6 +55,7 @@ class JumpGame:
 		observation = np.delete(in_, 3, axis=2)
 
 		is_finished = False
+		observation = observation[0:h/3, :, :]
 		im_mean = observation.mean(1).mean(0)
 		if(im_mean[0] < 100) and (im_mean[1] < 100) and (im_mean[2] < 100):
 			is_finished = True
@@ -107,14 +108,19 @@ class JumpGame:
 
 		return obs
 
+	def action_2_time(self, act):
+		return int(300 + 600*act)
+
 	def step(self, action):
 		# take action
-		return_code = sh('adb shell input swipe 530 1580 530 1580 ' + self.action2time[action])
+		#return_code = sh('adb shell input swipe 530 1580 530 1580 ' + self.action2time[action])
+		return_code = sh('adb shell input swipe 530 1580 530 1580 ' + str(self.action_2_time(action)))
 		if return_code != 0:
 			print('failed while step forward.')
 			return -1
 		else:
-			print('stepped forward ' + self.action2time[action] + 'ms')
+			#print('stepped forward ' + self.action2time[action] + 'ms')
+			print('stepped forward ' + str(self.action_2_time(action)) + 'ms')
 
 		# wait till it takes effect
 		time.sleep(3)
