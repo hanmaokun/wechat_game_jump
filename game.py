@@ -53,6 +53,7 @@ class JumpGame:
 		#im.save('/tmp/test_resize.jpeg', "JPEG")
 		in_ = np.array(image, dtype=np.float32)
 		observation = np.delete(in_, 3, axis=2)
+		observation_ = copy.deepcopy(observation)
 
 		is_finished = False
 		observation = observation[0:h/3, :, :]
@@ -60,9 +61,9 @@ class JumpGame:
 		if(im_mean[0] < 100) and (im_mean[1] < 100) and (im_mean[2] < 100):
 			is_finished = True
 
-		observation = np.transpose(observation, (1,0,2))
+		observation_ = np.transpose(observation_, (1,0,2))
 
-		return is_finished, observation
+		return is_finished, observation_
 
 	def get_state(self):
 		return_code = sh('adb shell screencap -p /sdcard/wechat-game-jump-state.png')
