@@ -6,6 +6,10 @@ import os
 import subprocess
 from PIL import Image
 import numpy as np
+import cv2
+import copy
+from rec import MeterValueReader
+import time
 
 def sh(command):
     p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -23,26 +27,43 @@ class ActionSpace:
 
 class JumpGame:
 	def __init__(self):
-		self.obs_space_shape = (135, 240)
+		self.score = 0
+		self.obs_space_shape = (135, 240, 3)
 		self.observation_space = ObservationSpace(self.obs_space_shape)
-		self.action_space = ActionSpace(8)
+		self.action_space = ActionSpace(5)
 		self.game_start_btn_coord = (530, 1580)
 		self.data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+		self.score_reader = MeterValueReader()
+		self.action2time = ['300', '600', '900', '1200', '1500']
 		if not os.path.exists(self.data_dir):
 			os.makedirs(self.data_dir)
 
-	def reset(self):
-		# at this moment, make sure game is on the 'ready to start' screen.
-		return_code = subprocess.call('adb shell input tap ' + \
-			str(self.game_start_btn_coord[0]) + ' ' + str(self.game_start_btn_coord[1]), shell=True)
-		if return_code == 0:
-			print('game is reset')
-		else:
-			print('game reset failed.')
-			return -1
+	def get_score(self, image):
+		img = np.array(image, dtype=np.float32)
+		img = np.delete(img, 3, axis=2)
+		score_img = img[160:360, 50:300, :]
+		cv2.imwrite('/tmp/score.jpeg', score_img)
+		img_bw = cv2.imread(os.path.join('/tmp/score.jpeg'), 0)
 
-		# next grab the screenshot as the initial observation(state).
-		#return_code = subprocess.call('adb shell screencap -p /sdcard/wechat-game-jump-state.png')
+		return int(self.score_reader.get_value(img_bw))
+
+	def check_finish(self, image):
+		w, h, _ = self.obs_space_shape
+		image.thumbnail((w,h), Image.ANTIALIAS)
+		#im.save('/tmp/test_resize.jpeg', "JPEG")
+		in_ = np.array(image, dtype=np.float32)
+		observation = np.delete(in_, 3, axis=2)
+
+		is_finished = False
+		im_mean = observation.mean(1).mean(0)
+		if(im_mean[0] < 75) and (im_mean[1] < 75) and (im_mean[2] < 75):
+			is_finished = True
+
+		observation = np.transpose(observation, (1,0,2))
+
+		return is_finished, observation
+
+	def get_state(self):
 		return_code = sh('adb shell screencap -p /sdcard/wechat-game-jump-state.png')
 		if return_code != 0:
 			print('game screenshot failed.')
@@ -58,15 +79,48 @@ class JumpGame:
 			print('fetched screenshot img')
 
 		im = Image.open(os.path.join(self.data_dir, 'wechat-game-jump-state.png'))
-		im.thumbnail(self.obs_space_shape, Image.ANTIALIAS)
-		#im.save('/tmp/test_resize.jpeg', "JPEG")
-		in_ = np.array(im, dtype=np.float32)
-		in_ = np.delete(in_, 3, axis=2)
+		im_copy = copy.deepcopy(im)
+		is_finished, observation = self.check_finish(im)
 
-		return in_
+		score = -10
+		if not is_finished:
+			score = self.get_score(im_copy)
+
+		return observation, score, is_finished
+
+	def reset(self):
+		# at this moment, make sure game is on the 'ready to start' screen.
+		return_code = subprocess.call('adb shell input tap ' + \
+			str(self.game_start_btn_coord[0]) + ' ' + str(self.game_start_btn_coord[1]), shell=True)
+		if return_code == 0:
+			print('game is reset')
+		else:
+			print('game reset failed.')
+			return -1
+
+		# next grab the screenshot as the initial observation(state).
+		obs, _, _ = self.get_state()
+
+		return obs
 
 	def step(self, action):
-		print('step forward')
+		# take action
+		return_code = sh('adb shell input swipe 530 1580 530 1580 ' + self.action2time[action])
+		if return_code != 0:
+			print('failed while step forward.')
+			return -1
+		else:
+			print('stepped forward ' + self.action2time[action] + 'ms')
+
+		# wait till it takes effect
+		time.sleep(4)
+
+		# get state
+		obs, self.score, is_finished = self.get_state()
+
+		# add info to align with atari gym API
+		info = None
+		return obs, self.score, is_finished, info
 
 	def render(self):
 		print('render')

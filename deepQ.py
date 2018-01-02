@@ -6,7 +6,8 @@ from collections import deque            	# For storing moves
 
 import numpy as np
 
-from game import JumpGame as env			
+from game import JumpGame
+env = JumpGame()			
 #import gym                                	# To train our network
 #env = gym.make('MountainCar-v0')			# Choose game (any in the gym should work)
 
