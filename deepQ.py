@@ -75,7 +75,7 @@ for t in range(observetime):
         state = np.stack((obs, obs), axis=1)
 
         # update model every 20 steps
-        if t>20 and t%20==0:
+        if t%20==0:
             len_D = len(D)
             mb_size = len_D if len_D < 20 else 20
             minibatch = random.sample(D, mb_size)                              # Sample some moves

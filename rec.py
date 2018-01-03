@@ -1,7 +1,12 @@
 import os
 import cv2
 import numpy
-KNN_SQUARE_SIDE = 120  # Square 50 x 50 px.
+import copy
+
+from sklearn.externals import joblib
+from skimage.feature import hog
+
+KNN_SQUARE_SIDE = 100  # Square 50 x 50 px.
 
 
 def resize(cv_image, factor):
@@ -42,7 +47,9 @@ def calc_overlap(box1, box2):
         intersect_size=(intersect_ymax-intersect_ymin) * (intersect_xmax-intersect_xmin)
         bbox1_size=(bbox1_ymax-bbox1_ymin) * (bbox1_xmax-bbox1_xmin)
         bbox2_size = (bbox2_ymax - bbox2_ymin) * (bbox2_xmax - bbox2_xmin)
-        overl_r=float(intersect_size) / (bbox1_size + bbox2_size - intersect_size)
+        smaller_size = bbox1_size if bbox1_size < bbox2_size else bbox1_size
+        #overl_r=float(intersect_size) / (bbox1_size + bbox2_size - intersect_size)
+        overl_r=float(intersect_size) / (smaller_size)
 
     return overl_r
 
@@ -57,6 +64,7 @@ class BaseKnnMatcher(object):
         for label_idx, filename in enumerate(os.listdir(source_dir)):
             label = filename[:filename.index('.png')]
             image = cv2.imread(os.path.join(source_dir, filename), 0)
+            #input_img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             suit_image_standard_size = cv2.resize(image, (KNN_SQUARE_SIDE, KNN_SQUARE_SIDE))
             self.lbl2temp[label] = suit_image_standard_size
 
@@ -108,13 +116,12 @@ class BaseKnnMatcher(object):
             lbl2score[lbl] = max_val
             #print(lbl + ' ' + str(max_val))
 
-        if knn_result == '8' and lbl2score[knn_result]<0.8:
-            knn_result = '3'
-        if knn_result == '9' and lbl2score[knn_result]<0.8:
-            knn_result = '7'
+        # if knn_result == '8' and lbl2score[knn_result]<0.7:
+        #     knn_result = '3'
+        # if knn_result == '9' and lbl2score[knn_result]<0.8:
+        #     knn_result = '7'
 
         return knn_result
-
 
 class DigitKnnMatcher(BaseKnnMatcher):
     distance_threshold = 10 ** 10
@@ -126,8 +133,8 @@ class MeterValueReader(object):
 
     @classmethod
     def get_symbol_boxes(cls, cv_image):
-        ofs = 10
-        ret, thresh = cv2.threshold(cv_image.copy(), 127, 255, cv2.THRESH_BINARY)
+        ofs = 0
+        ret, thresh = cv2.threshold(cv_image.copy(), cv_image.mean(1).mean(0), 255, cv2.THRESH_BINARY)
         contours, hierarchy = cv2.findContours(thresh, 1, 2)
 
         symbol_boxes = []
@@ -139,36 +146,102 @@ class MeterValueReader(object):
             # if cls.is_size_of_digit(width, height):
             #     symbol_boxes.append((x, y, x+width, y+height))
 
-            symbol_boxes.append((x-ofs, y-ofs, x+width+ofs, y+height+ofs))            
+            symbol_boxes.append((x-ofs, y-ofs, x+width+ofs, y+height+ofs))          
 
         symbol_boxes_finetune = []
+        symbol_boxes.reverse()
         for box in symbol_boxes:
             valid = True
             for k, finetuned_box in enumerate(symbol_boxes_finetune):
-                if calc_overlap(box, finetuned_box) > 0:
+                if calc_overlap(box, finetuned_box) == 1:
                     if box[0] > finetuned_box[0]:
                         valid = False
                     else:
                         symbol_boxes_finetune.pop(k)
                     break
+
             if valid:
                 symbol_boxes_finetune.append(box)
 
-        return symbol_boxes_finetune
+        # check for '7'
+        symbol_boxes_finetune_normal = []
+        symbol_boxes_finetune_abnormal = []
+        for box in symbol_boxes_finetune:
+            xmin, ymin, xmax, ymax = box
+            if  ymax - ymin < 15:
+                symbol_boxes_finetune_abnormal.append(box)
+            else:
+                symbol_boxes_finetune_normal.append(box)
 
-    def get_value(self, meter_cv2_image):
+        abnormal_groups = []
+        for abnormal_box in symbol_boxes_finetune_abnormal:
+            xmin, ymin, xmax, ymax = abnormal_box
+            x_center = (xmin + xmax)/2
+            added = False
+            for grp in abnormal_groups:
+                if len(grp) == 1:
+                    xmin, ymin, xmax, ymax = grp[0]
+                    x_center_ = (xmin + xmax)/2
+                    if abs(x_center_ - x_center) < 4:
+                        grp.append(abnormal_box)
+                        added = True
+            if not added:
+                grp = []
+                grp.append(abnormal_box)
+                abnormal_groups.append(grp)
+
+        for grp in abnormal_groups:
+            box1 = grp[0]
+            box2 = grp[1]
+            xmin1, ymin1, xmax1, ymax1 = box1
+            xmin2, ymin2, xmax2, ymax2 = box2
+
+            xmin = xmin1 if xmin1 < xmin2 else xmin2
+            ymin = ymin1 if ymin1 < ymin2 else ymin2
+            xmax = xmax1 if xmax1 > xmax2 else xmax2
+            ymax = ymax1 if ymax1 > ymax2 else ymax2
+
+            symbol_boxes_finetune_normal.append((xmin, ymin, xmax, ymax))
+
+
+        return symbol_boxes_finetune_normal
+
+    def get_value0(self, meter_cv2_image):
+        symbol_boxes = self.get_symbol_boxes(meter_cv2_image)
+        #draw_boxes_and_show(meter_cv2_image, symbol_boxes)
+        symbol_boxes.sort()  # x is first in tuple
+        symbols = []
+        for box in symbol_boxes:
+            roi = crop(meter_cv2_image, box)
+            symbol = self.digit_knn_matcher.predict(roi)
+            symbols.append(symbol)
+
+            roi_gray = copy.deepcopy(roi)
+            thres = roi_gray.mean(1).mean(0)
+            roi_thresh = roi_gray[roi_gray>thres]
+            #print(len(roi_thresh))
+            #cv2.imshow('bw', roi_gray)
+            #cv2.waitKey(0)
+
+        return ''.join(symbols)
+
+    def get_value1(self, meter_cv2_image):
+        clf = joblib.load("digits_cls.pkl")
         symbol_boxes = self.get_symbol_boxes(meter_cv2_image)
         symbol_boxes.sort()  # x is first in tuple
         symbols = []
         for box in symbol_boxes:
-            symbol = self.digit_knn_matcher.predict(crop(meter_cv2_image, box))
-            symbols.append(symbol)
+            roi = crop(meter_cv2_image, box)
+            roi = cv2.resize(roi, (28, 28), interpolation=cv2.INTER_AREA)
+            roi = cv2.dilate(roi, (3, 3))
+            roi_hog_fd = hog(roi, orientations=9, pixels_per_cell=(14, 14), cells_per_block=(1, 1), visualise=False)
+            nbr = clf.predict(numpy.array([roi_hog_fd], 'float64'))
+            symbols.append(str(nbr[0]))
         return ''.join(symbols)
-
 
 if __name__ == '__main__':
     # If you want to see how boxes detection works, uncomment these:
-    # img_bw = cv2.imread(os.path.join('./data/10.png'), 0)
+    # img_bw = cv2.imread(os.path.join('/tmp/score.jpeg'), 0)
     # boxes = MeterValueReader.get_symbol_boxes(img_bw)
     # draw_boxes_and_show(img_bw, boxes)
 
@@ -181,6 +254,6 @@ if __name__ == '__main__':
     #     # You need to label templates manually after extraction
     #     cv2.imwrite(os.path.join(TEMPLATE_DIR, '%s.png' % random.randint(10, 1000)), crop(img_bw, box))
 
-    img_bw = cv2.imread(os.path.join('./data/9.png'), 0)
+    img_bw = cv2.imread(os.path.join('/tmp/score.jpeg'), 0)
     vr = MeterValueReader()
-    print vr.get_value(img_bw)
+    print vr.get_value0(img_bw)

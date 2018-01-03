@@ -28,6 +28,8 @@ class ActionSpace:
 class JumpGame:
 	def __init__(self):
 		self.score = 0
+		self.best_score = 0
+		self.average_round = 0
 		self.obs_space_shape = (135, 240, 3)
 		self.observation_space = ObservationSpace(self.obs_space_shape)
 		self.action2time = ['200', '300', '400', '500', '600', '700', '800', '900']
@@ -70,15 +72,15 @@ class JumpGame:
 		if return_code != 0:
 			print('game screenshot failed.')
 			return -1
-		else:
-			print('executed screenshoting')
+		#else:
+		#	print('executed screenshoting')
 
 		return_code =sh('adb pull /sdcard/wechat-game-jump-state.png ' + self.data_dir)
 		if return_code != 0:
 			print('retrieve game screen png failed.')
 			return -1
-		else:
-			print('fetched screenshot img')
+		#else:
+		#	print('fetched screenshot img')
 
 		im = Image.open(os.path.join(self.data_dir, 'wechat-game-jump-state.png'))
 		im_copy = copy.deepcopy(im)
@@ -91,12 +93,13 @@ class JumpGame:
 		return observation, score, is_finished
 
 	def reset(self):
+		print('BEST SCORE: ' + str(self.best_score))
 		self.score = 0
 		# at this moment, make sure game is on the 'ready to start' screen.
 		return_code = subprocess.call('adb shell input tap ' + \
 			str(self.game_start_btn_coord[0]) + ' ' + str(self.game_start_btn_coord[1]), shell=True)
 		if return_code == 0:
-			print('game is reset')
+			print('####################GAME IS RESET####################')
 		else:
 			print('game reset failed.')
 			return -1
@@ -131,6 +134,8 @@ class JumpGame:
 		if score == -10:
 			self.score = -10
 		else:
+			if score > self.best_score:
+				self.best_score = score
 			score -= self.score
 			self.score += score
 

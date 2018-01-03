@@ -70,4 +70,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     SRC = args.src
     #seg_pig(SRC)
-    check_pkl(SRC)
+    check_pkl('/home/nlp/bigsur/devel/wechat-games/jump/data/D-manul.pkl')
