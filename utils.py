@@ -24,7 +24,7 @@ def check_pkl(src_file):
     pkl_file = open(src_file, 'rb')
     content = pickle.load(pkl_file)
     for per_d in content:
-        print(per_d[2])
+        print(per_d[1])
 
 def seg_pig(src_img):
     import numpy as np
