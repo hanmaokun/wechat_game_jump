@@ -104,7 +104,11 @@ def get_cur_q(image, score_reader):
     return q_reward, input_img[GAME_SCREEN_YMIN:GAME_SCREEN_YMAX, GAME_SCREEN_XMIN:GAME_SCREEN_XMAX]
 
 def check_finish(num, image_data):
-    if num >= 1040:
+    img_check_finish = image_data[TAP_REGION_YMIN:TAP_REGION_YMAX, TAP_REGION_XMIN:TAP_REGION_XMAX]
+    mean_val = img_check_finish.mean(1).mean(0)
+    rgb_mean = (np.mean(mean_val, dtype=np.float64))
+
+    if rgb_mean < 80:
         return True
     else:
         return False
@@ -145,6 +149,9 @@ def recording2traindata(src_mp4_file, score_reader, store_d):
         else:
             is_finished = check_finish(num, copy.deepcopy(image))
             if is_finished:    
+                q_action = tap_time - 11
+                q_reward = -10
+                store_d.append((q_state, q_action, q_reward, q_state, 0))
                 with open(pkl_file_path, "wb") as f:
                     pickle.dump(store_d, f, pickle.HIGHEST_PROTOCOL)
                     f.close()
