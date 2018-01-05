@@ -20,6 +20,7 @@ from collections import deque                # For storing moves
 
 from keras.models import Sequential          # One layer after the other
 from keras.layers import Dense, Flatten      # Dense layers are fully connected layers, Flatten layers flatten out multidimensional inputs
+from keras.models import model_from_json
 
 reload(sys)
 sys.setdefaultencoding("utf-8")
@@ -133,8 +134,23 @@ def check_started(image_data, score_reader):
     
     return False
 
-def model_init():
+def model_init(model_file_name):
     # Create network. Input is two consecutive game states, output is Q-values of the possible moves.
+    json_model_path = './model/' + model_file_name + '.json'
+    weights_model_path = './model/' + model_file_name + '.h5'
+
+    if os.path.isfile(weights_model_path):
+        file_stat = os.stat(weights_model_path)
+        if file_stat.st_size != 0:
+            json_file = open(json_model_path, 'r')
+            loaded_model_json = json_file.read()
+            json_file.close()
+            loaded_model = model_from_json(loaded_model_json)
+            # load weights into new model
+            loaded_model.load_weights(weights_model_path)
+
+            return loaded_model
+
     model = Sequential()
     model.add(Dense(20, input_shape=(2,) + (320, 240, 3), init='uniform', activation='relu'))
     model.add(Flatten())                           # Flatten input so as to have no problems with processing
@@ -247,22 +263,22 @@ def train(store_d_file, model):
         done = minibatch[i][4]
         
         if action > 10:
-        	action -= 10
-	        # Build Bellman equation for the Q function
-	        inputs[i:i+1] = np.expand_dims(state, axis=0)
-	        #target = model.predict(state)
-	        #targets[i] = target[0][0]
-	        targets[i] = model.predict(state)
-	        Q_sa = model.predict(state_new)
-	        
-	        if done:
-	            targets[i, action] = reward
-	        else:
-	            targets[i, action] = reward + gamma * np.max(Q_sa)
-	            #targets[i, action] = reward + gamma * Q_sa[0][0]
+            action -= 10
+            # Build Bellman equation for the Q function
+            inputs[i:i+1] = np.expand_dims(state, axis=0)
+            #target = model.predict(state)
+            #targets[i] = target[0][0]
+            targets[i] = model.predict(state)
+            Q_sa = model.predict(state_new)
+            
+            if done:
+                targets[i, action] = reward
+            else:
+                targets[i, action] = reward + gamma * np.max(Q_sa)
+                #targets[i, action] = reward + gamma * Q_sa[0][0]
 
-	        # Train network to output the Q function
-	        model.train_on_batch(inputs, targets)
+            # Train network to output the Q function
+            model.train_on_batch(inputs, targets)
 
     pkl_file_D.close()
     print('Learning Finished')
@@ -279,14 +295,23 @@ if __name__ == '__main__':
     #get_cur_q('/home/nlp/bigsur/devel/wechat-games/jump/data/tap_none.png', score_reader)
     #check("./data/2018_01_03_07_28_41.mp4")
 
-    model = model_init()
+    save_model_name = 'jump_model'
+
+    model = model_init(save_model_name)
     samples_ctr = 0
     for root, dir_names, file_names in os.walk('./data/test/'):
         for mp4_file_name in fnmatch.filter(file_names, '*.mp4'):
-        	mp4_file_path = os.path.join(root, mp4_file_name)
-        	print('processing with ' + mp4_file_path)
-    		stored_d, num_samples = recording2traindata(mp4_file_path, score_reader)
-    		train(stored_d, model)
-    		samples_ctr += num_samples
+            mp4_file_path = os.path.join(root, mp4_file_name)
+            print('processing with ' + mp4_file_path)
+            stored_d, num_samples = recording2traindata(mp4_file_path, score_reader)
+            train(stored_d, model)
+            samples_ctr += num_samples
 
-    print('training finished with all ' + str(samples_ctr) + ' samples.')
+    # serialize model to JSON
+    model_json = model.to_json()
+    with open('./model/' + save_model_name + '.json', "w") as json_file:
+        json_file.write(model_json)
+    # serialize weights to HDF5
+    model.save_weights('./model/' + save_model_name + '.h5')
+
+    print('training finished with all ' + str(samples_ctr) + ' samples, saved to ' + save_model_name)
