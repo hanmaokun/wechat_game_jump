@@ -113,6 +113,21 @@ def check_finish(num, image_data):
     else:
         return False
 
+def check_started(image_data, score_reader):
+    img_score = image_data[SCORE_REGION_YMIN:SCORE_REGION_YMAX, SCORE_REGION_XMIN:SCORE_REGION_XMAX]
+    cv2.imwrite('/tmp/score_start.jpeg', img_score)
+    img_bw = cv2.imread(os.path.join('/tmp/score_start.jpeg'), 0)
+
+    #q_reward = int(score_reader.get_value0(img_bw))
+    score_str = score_reader.get_value0(img_bw)
+    if len(score_str):
+    	print('not started yet')
+    	if int(score_str) == 0:
+    		return True
+    
+    return False
+
+
 def recording2traindata(src_mp4_file, score_reader, store_d):
     # Create network. Input is two consecutive game states, output is Q-values of the possible moves.
     model = Sequential()
@@ -140,10 +155,12 @@ def recording2traindata(src_mp4_file, score_reader, store_d):
     reward_prev = 0
     q_state_new = None
     tap_ctr = 0
+    is_stared = False
 
     for num, image in enumerate(vid):
 
-        if num < IGNORE_FIRST_FRAMES_N:
+        if not is_stared:
+            is_stared = check_started(copy.deepcopy(image), score_reader)
             continue
 
         else:

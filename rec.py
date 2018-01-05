@@ -138,6 +138,11 @@ class MeterValueReader(object):
         contours, hierarchy = cv2.findContours(thresh, 1, 2)
 
         symbol_boxes = []
+        if len(contours) == 0:
+            height, width = cv_image.shape
+            symbol_boxes.append((0, 0, width, height))
+            return symbol_boxes
+
         contours.pop(-1)
         for contour in contours:
             x, y, width, height = cv2.boundingRect(contour)
@@ -192,7 +197,9 @@ class MeterValueReader(object):
 
         for grp in abnormal_groups:
             box1 = grp[0]
-            box2 = grp[1]
+            box2 = grp[0]
+            if len(grp) == 2:
+                box2 = grp[1]
             xmin1, ymin1, xmax1, ymax1 = box1
             xmin2, ymin2, xmax2, ymax2 = box2
 
