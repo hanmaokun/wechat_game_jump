@@ -191,7 +191,7 @@ def recording2traindata(src_mp4_file, score_reader):
             if is_finished:    
                 q_action = tap_time - 11
                 q_reward = -10
-                store_d.append((q_state, q_action, q_reward, q_state, 0))
+                store_d.append((q_state, q_action, q_reward, q_state, 1))
                 with open(pkl_file_path, "wb") as f:
                     pickle.dump(store_d, f, pickle.HIGHEST_PROTOCOL)
                     f.close()
@@ -249,7 +249,7 @@ def train(store_d_file, model):
     minibatch = random.sample(store_d, mb_size)                              # Sample some moves
 
     epsilon = 0.7                              # Probability of doing a random move
-    gamma = 0.9
+    gamma = 0.3
 
     state = minibatch[0][0]
     inputs_shape = (mb_size,) + state.shape[1:]
