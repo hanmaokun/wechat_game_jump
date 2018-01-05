@@ -235,6 +235,7 @@ def recording2traindata(src_mp4_file, score_reader):
 
             state_prev = state_cur
             image_prev = copy.deepcopy(image)
+            #cv2.imwrite('/tmp/image_prev.jpeg', image)
 
     print('training data recorded to ' + pkl_file_path)
 

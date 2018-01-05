@@ -11,6 +11,11 @@ import copy
 from rec import MeterValueReader
 import time
 
+GAME_SCREEN_XMIN = 0
+GAME_SCREEN_XMAX = 240
+GAME_SCREEN_YMIN = 64
+GAME_SCREEN_YMAX = 384
+
 def sh(command):
     p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     p.wait()
@@ -32,8 +37,7 @@ class JumpGame:
 		self.average_round = 0
 		self.obs_space_shape = (135, 240, 3)
 		self.observation_space = ObservationSpace(self.obs_space_shape)
-		self.action2time = ['200', '300', '400', '500', '600', '700', '800', '900']
-		self.action_space = ActionSpace(len(self.action2time))
+		self.action_space = ActionSpace(20)
 		self.game_start_btn_coord = (530, 1580)
 		self.data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 		self.score_reader = MeterValueReader()
@@ -47,10 +51,12 @@ class JumpGame:
 		cv2.imwrite('/tmp/score.jpeg', score_img)
 		img_bw = cv2.imread(os.path.join('/tmp/score.jpeg'), 0)
 
-		return int(self.score_reader.get_value(img_bw))
+		return int(self.score_reader.get_value0(img_bw))
 
 	def check_finish(self, image):
-		w, h, _ = self.obs_space_shape
+		#w, h, _ = self.obs_space_shape
+		w = 240
+		h = 426
 		image.thumbnail((w,h), Image.ANTIALIAS)
 		#im.save('/tmp/test_resize.jpeg', "JPEG")
 		in_ = np.array(image, dtype=np.float32)
@@ -63,7 +69,8 @@ class JumpGame:
 		if(im_mean[0] < 100) and (im_mean[1] < 100) and (im_mean[2] < 100):
 			is_finished = True
 
-		observation_ = np.transpose(observation_, (1,0,2))
+		#observation_ = np.transpose(observation_, (1,0,2))
+		observation_ = observation_[GAME_SCREEN_YMIN:GAME_SCREEN_YMAX, GAME_SCREEN_XMIN:GAME_SCREEN_XMAX]
 
 		return is_finished, observation_
 
@@ -117,13 +124,13 @@ class JumpGame:
 
 	def step(self, action):
 		# take action
-		return_code = sh('adb shell input swipe 530 1580 530 1580 ' + self.action2time[action])
+		return_code = sh('adb shell input swipe 530 1580 530 1580 ' + str(int(action*40)))
 		#return_code = sh('adb shell input swipe 530 1580 530 1580 ' + str(self.action_2_time(action)))
 		if return_code != 0:
 			print('failed while step forward.')
 			return -1
 		else:
-			print('stepped forward ' + self.action2time[action] + 'ms')
+			print('stepped forward ' + str(int(action*40)) + 'ms')
 			#print('stepped forward ' + str(self.action_2_time(action)) + 'ms')
 
 		# wait till it takes effect
