@@ -13,6 +13,8 @@ import copy
 import cv2
 import os,sys
 import pickle
+import fnmatch
+import xml.etree.cElementTree as ET
 from rec import MeterValueReader
 from collections import deque                # For storing moves 
 
@@ -30,6 +32,10 @@ TAP_REGION_XMIN = 64
 TAP_REGION_XMAX = 160
 TAP_REGION_YMIN = 0
 TAP_REGION_YMAX = 70
+# TAP_REGION_XMIN = 50
+# TAP_REGION_XMAX = 190
+# TAP_REGION_YMIN = 360
+# TAP_REGION_YMAX = 426
 
 SCORE_REGION_XMIN = 18
 SCORE_REGION_XMAX = 76
@@ -121,14 +127,13 @@ def check_started(image_data, score_reader):
     #q_reward = int(score_reader.get_value0(img_bw))
     score_str = score_reader.get_value0(img_bw)
     if len(score_str):
-    	print('not started yet')
-    	if int(score_str) == 0:
-    		return True
+        print('not started yet')
+        if int(score_str) == 0:
+            return True
     
     return False
 
-
-def recording2traindata(src_mp4_file, score_reader, store_d):
+def model_init():
     # Create network. Input is two consecutive game states, output is Q-values of the possible moves.
     model = Sequential()
     model.add(Dense(20, input_shape=(2,) + (320, 240, 3), init='uniform', activation='relu'))
@@ -136,12 +141,14 @@ def recording2traindata(src_mp4_file, score_reader, store_d):
     model.add(Dense(18, init='uniform', activation='relu'))
     model.add(Dense(10, init='uniform', activation='relu'))
 
-    model.add(Dense(15, init='uniform', activation='linear'))    # Same number of outputs as possible actions
+    model.add(Dense(20, init='uniform', activation='linear'))    # Same number of outputs as possible actions
     model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
-    epsilon = 0.7                              # Probability of doing a random move
-    gamma = 0.9
 
-    pkl_file_path = './data/D-manul.pkl'
+    return model
+
+def recording2traindata(src_mp4_file, score_reader):
+    store_d = deque()
+    pkl_file_path = './data/' + src_mp4_file.split('/')[-1].split('.')[0] + '.pkl'
     S_STARTED, S_IDLE, S_TAPPINGDOWN = range(3)
     state_cur = S_STARTED
     state_prev = S_STARTED
@@ -183,9 +190,9 @@ def recording2traindata(src_mp4_file, score_reader, store_d):
                         tap_ctr += 1
                         reward_cur, obs_new = get_cur_q(copy.deepcopy(image), score_reader)
                         q_reward = reward_cur - reward_prev
-                        q_action = tap_time - 11
+                        q_action = tap_time
                         observation_new = image_prev[GAME_SCREEN_YMIN:GAME_SCREEN_YMAX, GAME_SCREEN_XMIN:GAME_SCREEN_XMAX]
-
+                        print('tap time: ' + str(tap_time))
                         # See state of the game, reward... after performing the action
                         obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
                         q_state_new = np.append(np.expand_dims(obs_new, axis=0), q_state[:, :1, :], axis=1)     # Update the input with the new state of the game
@@ -215,14 +222,22 @@ def recording2traindata(src_mp4_file, score_reader, store_d):
 
     print('training data recorded to ' + pkl_file_path)
 
+    return pkl_file_path, len(store_d)
+
+def train(store_d_file, model):
+    pkl_file_D = open(store_d_file, 'rb')
+    store_d = pickle.load(pkl_file_D)
     len_D = len(store_d)
     mb_size = len_D if len_D < 20 else 20
     minibatch = random.sample(store_d, mb_size)                              # Sample some moves
 
+    epsilon = 0.7                              # Probability of doing a random move
+    gamma = 0.9
+
     state = minibatch[0][0]
     inputs_shape = (mb_size,) + state.shape[1:]
     inputs = np.zeros(inputs_shape)
-    targets = np.zeros((mb_size, 15))
+    targets = np.zeros((mb_size, 20))
 
     for i in range(0, mb_size):
         state = minibatch[i][0]
@@ -231,22 +246,25 @@ def recording2traindata(src_mp4_file, score_reader, store_d):
         state_new = minibatch[i][3]
         done = minibatch[i][4]
         
-        # Build Bellman equation for the Q function
-        inputs[i:i+1] = np.expand_dims(state, axis=0)
-        #target = model.predict(state)
-        #targets[i] = target[0][0]
-        targets[i] = model.predict(state)
-        Q_sa = model.predict(state_new)
-        
-        if done:
-            targets[i, action] = reward
-        else:
-            targets[i, action] = reward + gamma * np.max(Q_sa)
-            #targets[i, action] = reward + gamma * Q_sa[0][0]
+        if action > 10:
+        	action -= 10
+	        # Build Bellman equation for the Q function
+	        inputs[i:i+1] = np.expand_dims(state, axis=0)
+	        #target = model.predict(state)
+	        #targets[i] = target[0][0]
+	        targets[i] = model.predict(state)
+	        Q_sa = model.predict(state_new)
+	        
+	        if done:
+	            targets[i, action] = reward
+	        else:
+	            targets[i, action] = reward + gamma * np.max(Q_sa)
+	            #targets[i, action] = reward + gamma * Q_sa[0][0]
 
-        # Train network to output the Q function
-        model.train_on_batch(inputs, targets)
+	        # Train network to output the Q function
+	        model.train_on_batch(inputs, targets)
 
+    pkl_file_D.close()
     print('Learning Finished')
 
 if __name__ == '__main__':
@@ -256,9 +274,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
     src_file = args.src
     score_reader = MeterValueReader()
-    D = deque()
 
     #match_touch(cv2.imread('/home/nlp/bigsur/devel/wechat-games/jump/data/tap_down0.png'))
     #get_cur_q('/home/nlp/bigsur/devel/wechat-games/jump/data/tap_none.png', score_reader)
     #check("./data/2018_01_03_07_28_41.mp4")
-    recording2traindata("./data/2018_01_03_07_28_41.mp4", score_reader, D)
+
+    model = model_init()
+    samples_ctr = 0
+    for root, dir_names, file_names in os.walk('./data/test/'):
+        for mp4_file_name in fnmatch.filter(file_names, '*.mp4'):
+        	mp4_file_path = os.path.join(root, mp4_file_name)
+        	print('processing with ' + mp4_file_path)
+    		stored_d, num_samples = recording2traindata(mp4_file_path, score_reader)
+    		train(stored_d, model)
+    		samples_ctr += num_samples
+
+    print('training finished with all ' + str(samples_ctr) + ' samples.')
