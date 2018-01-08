@@ -303,10 +303,14 @@ def train(store_d_file, model):
             targets[i] = target[0]
             Q_sa = model.predict(np.expand_dims(state_new, axis=0))
             print(np.argmax(Q_sa))
-            if done:
-                targets[i, action] = reward
-            else:
-                targets[i, action] = reward + gamma * np.max(Q_sa)
+            t_ = np.zeros((1, 20))[0]
+            t_[action] = 1
+            targets[i] = t_
+
+            # if done:
+            #     targets[i, action] = reward
+            # else:
+            #     targets[i, action] = reward + gamma * np.max(Q_sa)
                 #targets[i, action] = reward + gamma * Q_sa[0][0]
 
             # Train network to output the Q function
