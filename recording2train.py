@@ -18,6 +18,9 @@ import xml.etree.cElementTree as ET
 from rec import MeterValueReader
 from collections import deque                # For storing moves 
 
+import keras
+from keras.models import Model
+from keras.models import Input
 from keras.models import Sequential          # One layer after the other
 from keras.layers import Dense, Flatten      # Dense layers are fully connected layers, Flatten layers flatten out multidimensional inputs
 from keras.models import model_from_json
@@ -105,8 +108,11 @@ def get_cur_q(image, score_reader):
     cv2.imwrite('/tmp/score.jpeg', score_img)
     img_bw = cv2.imread(os.path.join('/tmp/score.jpeg'), 0)
 
-    q_reward = int(score_reader.get_value0(img_bw))
-    print(q_reward)
+    score_str = score_reader.get_value0(img_bw)
+    if score_str == '':
+        q_reward = -1
+    else:
+        q_reward = int(score_str)
 
     return q_reward, input_img[GAME_SCREEN_YMIN:GAME_SCREEN_YMAX, GAME_SCREEN_XMIN:GAME_SCREEN_XMAX]
 
@@ -151,13 +157,26 @@ def model_init(model_file_name):
 
             return loaded_model
 
-    model = Sequential()
-    model.add(Dense(20, input_shape=(2,) + (320, 240, 3), init='uniform', activation='relu'))
-    model.add(Flatten())                           # Flatten input so as to have no problems with processing
-    model.add(Dense(18, init='uniform', activation='relu'))
-    model.add(Dense(10, init='uniform', activation='relu'))
+    # a naive sequential model
+    # model = Sequential()
+    # model.add(Dense(20, input_shape=(2,) + (320, 240, 3), init='uniform', activation='relu'))
+    # model.add(Flatten())                           # Flatten input so as to have no problems with processing
+    # model.add(Dense(20, init='uniform', activation='relu'))
+    # model.add(Dense(10, init='uniform', activation='relu'))
 
-    model.add(Dense(20, init='uniform', activation='linear'))    # Same number of outputs as possible actions
+    # model.add(Dense(20, init='uniform', activation='linear'))    # Same number of outputs as possible actions
+    # model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
+
+    # finetuned vgg16 model
+    input_tensor = Input(shape=(320, 240, 3))
+    base_model = keras.applications.vgg16.VGG16(include_top=False, weights='imagenet', input_tensor=input_tensor, pooling=None, classes=1000)
+    for layer in base_model.layers:
+    	layer.trainable = False
+    top_model = Sequential()
+    top_model.add(Flatten(input_shape=base_model.output_shape[1:]))
+    top_model.add(Dense(256, activation='relu'))
+    top_model.add(Dense(20, activation='softmax'))
+    model = Model(inputs= base_model.input, outputs= top_model(base_model.output))
     model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
 
     return model
@@ -205,14 +224,16 @@ def recording2traindata(src_mp4_file, score_reader):
                         cv2.imwrite('/tmp/tap_' + str(tap_ctr) + '.jpeg', image)
                         tap_ctr += 1
                         reward_cur, obs_new = get_cur_q(copy.deepcopy(image), score_reader)
+                        if reward_cur == -1:
+                            reward_cur = reward_prev
                         q_reward = reward_cur - reward_prev
                         q_action = tap_time
                         observation_new = image_prev[GAME_SCREEN_YMIN:GAME_SCREEN_YMAX, GAME_SCREEN_XMIN:GAME_SCREEN_XMAX]
                         print('tap time: ' + str(tap_time))
                         # See state of the game, reward... after performing the action
-                        obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
-                        q_state_new = np.append(np.expand_dims(obs_new, axis=0), q_state[:, :1, :], axis=1)     # Update the input with the new state of the game
-
+                        #obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
+                        #q_state_new = np.append(np.expand_dims(obs_new, axis=0), q_state[:, :1, :], axis=1)     # Update the input with the new state of the game
+                        q_state_new = observation_new
                         store_d.append((q_state, q_action, q_reward, q_state_new, 0))
 
                         q_state = q_state_new
@@ -229,8 +250,9 @@ def recording2traindata(src_mp4_file, score_reader):
 
             elif state_prev == S_STARTED:
                 observation = image[GAME_SCREEN_YMIN:GAME_SCREEN_YMAX, GAME_SCREEN_XMIN:GAME_SCREEN_XMAX]
-                obs = np.expand_dims(observation, axis=0)     # (Formatting issues) Making the observation the first element of a batch of inputs 
-                q_state = np.stack((obs, obs), axis=1)
+                #obs = np.expand_dims(observation, axis=0)     # (Formatting issues) Making the observation the first element of a batch of inputs 
+                #q_state = np.stack((obs, obs), axis=1)
+                q_state = observation
                 state_cur = S_IDLE
 
             state_prev = state_cur
@@ -238,6 +260,7 @@ def recording2traindata(src_mp4_file, score_reader):
             #cv2.imwrite('/tmp/image_prev.jpeg', image)
 
     print('training data recorded to ' + pkl_file_path)
+    vid.close()
 
     return pkl_file_path, len(store_d)
 
@@ -245,14 +268,19 @@ def train(store_d_file, model):
     pkl_file_D = open(store_d_file, 'rb')
     store_d = pickle.load(pkl_file_D)
     len_D = len(store_d)
-    mb_size = len_D if len_D < 20 else 20
+    mb_size = len_D if len_D < 20 else len_D
     minibatch = random.sample(store_d, mb_size)                              # Sample some moves
 
     epsilon = 0.7                              # Probability of doing a random move
-    gamma = 0.3
+    gamma = 0.9
 
     state = minibatch[0][0]
-    inputs_shape = (mb_size,) + state.shape[1:]
+
+    # inputs_shape = (mb_size,) + state.shape[1:]
+    # inputs = np.zeros(inputs_shape)
+    # targets = np.zeros((mb_size, 20))
+
+    inputs_shape = (mb_size,) + state.shape
     inputs = np.zeros(inputs_shape)
     targets = np.zeros((mb_size, 20))
 
@@ -263,15 +291,17 @@ def train(store_d_file, model):
         state_new = minibatch[i][3]
         done = minibatch[i][4]
         
-        if action > 10:
+        if action > 10 and action < 30:
             action -= 10
             # Build Bellman equation for the Q function
+            #inputs[i:i+1] = np.expand_dims(state, axis=0)
             inputs[i:i+1] = np.expand_dims(state, axis=0)
             #target = model.predict(state)
             #targets[i] = target[0][0]
-            targets[i] = model.predict(state)
-            Q_sa = model.predict(state_new)
-            
+            target = model.predict(inputs[i:i+1])
+            targets[i] = target[0]
+            Q_sa = model.predict(np.expand_dims(state_new, axis=0))
+            print(np.argmax(Q_sa))
             if done:
                 targets[i, action] = reward
             else:
@@ -279,7 +309,7 @@ def train(store_d_file, model):
                 #targets[i, action] = reward + gamma * Q_sa[0][0]
 
             # Train network to output the Q function
-            model.train_on_batch(inputs, targets)
+    model.train_on_batch(inputs, targets)
 
     pkl_file_D.close()
     print('Learning Finished')

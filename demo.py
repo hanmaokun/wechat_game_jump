@@ -56,7 +56,7 @@ done = False
 for t in range(observetime):
     Q = jump_model.predict(state)          # Q-values predictions
     action = np.argmax(Q)                  # Move with highest Q-value is the chosen one
-    print(Q)
+    print(action)
     observation_new, reward, done, info = env.step(action + 10)     # See state of the game, reward... after performing the action
     obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
     state_new = np.append(np.expand_dims(obs_new, axis=0), state[:, :1, :], axis=1)     # Update the input with the new state of the game
