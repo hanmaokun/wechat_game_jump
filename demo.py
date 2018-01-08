@@ -31,13 +31,26 @@ def model_init(model_file_name):
 
             return loaded_model
 
-    model = Sequential()
-    model.add(Dense(20, input_shape=(2,) + (320, 240, 3), init='uniform', activation='relu'))
-    model.add(Flatten())                           # Flatten input so as to have no problems with processing
-    model.add(Dense(18, init='uniform', activation='relu'))
-    model.add(Dense(10, init='uniform', activation='relu'))
+    # a naive sequential model
+    # model = Sequential()
+    # model.add(Dense(20, input_shape=(2,) + (320, 240, 3), init='uniform', activation='relu'))
+    # model.add(Flatten())                           # Flatten input so as to have no problems with processing
+    # model.add(Dense(20, init='uniform', activation='relu'))
+    # model.add(Dense(10, init='uniform', activation='relu'))
 
-    model.add(Dense(20, init='uniform', activation='linear'))    # Same number of outputs as possible actions
+    # model.add(Dense(20, init='uniform', activation='linear'))    # Same number of outputs as possible actions
+    # model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
+
+    # finetuned vgg16 model
+    input_tensor = Input(shape=(320, 240, 3))
+    base_model = keras.applications.vgg16.VGG16(include_top=False, weights='imagenet', input_tensor=input_tensor, pooling=None, classes=1000)
+    for layer in base_model.layers:
+        layer.trainable = False
+    top_model = Sequential()
+    top_model.add(Flatten(input_shape=base_model.output_shape[1:]))
+    top_model.add(Dense(256, activation='relu'))
+    top_model.add(Dense(20, activation='softmax'))
+    model = Model(inputs= base_model.input, outputs= top_model(base_model.output))
     model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
 
     return model
@@ -50,17 +63,20 @@ mb_size = 50                               # Learning minibatch size
 
 jump_model = model_init('jump_model')
 observation = env.reset()                  # Game begins
-obs = np.expand_dims(observation, axis=0)  # (Formatting issues) Making the observation the first element of a batch of inputs 
-state = np.stack((obs, obs), axis=1)
+#obs = np.expand_dims(observation, axis=0)  # (Formatting issues) Making the observation the first element of a batch of inputs 
+#state = np.stack((obs, obs), axis=1)
+state = observation
 done = False
 for t in range(observetime):
-    Q = jump_model.predict(state)          # Q-values predictions
+    obs = np.expand_dims(state, axis=0)
+    Q = jump_model.predict(obs)          # Q-values predictions
     action = np.argmax(Q)                  # Move with highest Q-value is the chosen one
     print(action)
     observation_new, reward, done, info = env.step(action + 10)     # See state of the game, reward... after performing the action
-    obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
-    state_new = np.append(np.expand_dims(obs_new, axis=0), state[:, :1, :], axis=1)     # Update the input with the new state of the game
+    #obs_new = np.expand_dims(observation_new, axis=0)          # (Formatting issues)
+    #state_new = np.append(np.expand_dims(obs_new, axis=0), state[:, :1, :], axis=1)     # Update the input with the new state of the game
 
-    state = state_new
+    #state = state_new
+    state = observation_new
 
 print('Demo Finished')

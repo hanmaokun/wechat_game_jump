@@ -154,6 +154,7 @@ def model_init(model_file_name):
             loaded_model = model_from_json(loaded_model_json)
             # load weights into new model
             loaded_model.load_weights(weights_model_path)
+            loaded_model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
 
             return loaded_model
 
@@ -174,10 +175,10 @@ def model_init(model_file_name):
     	layer.trainable = False
     top_model = Sequential()
     top_model.add(Flatten(input_shape=base_model.output_shape[1:]))
-    top_model.add(Dense(256, activation='relu'))
-    top_model.add(Dense(20, activation='softmax'))
+    top_model.add(Dense(20, init='uniform', activation='relu'))
+    top_model.add(Dense(20, init='uniform', activation='sigmoid'))
     model = Model(inputs= base_model.input, outputs= top_model(base_model.output))
-    model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
 
     return model
 
@@ -268,11 +269,11 @@ def train(store_d_file, model):
     pkl_file_D = open(store_d_file, 'rb')
     store_d = pickle.load(pkl_file_D)
     len_D = len(store_d)
-    mb_size = len_D if len_D < 20 else len_D
+    mb_size = len_D if len_D < 20 else 20
     minibatch = random.sample(store_d, mb_size)                              # Sample some moves
 
     epsilon = 0.7                              # Probability of doing a random move
-    gamma = 0.9
+    gamma = 0
 
     state = minibatch[0][0]
 
